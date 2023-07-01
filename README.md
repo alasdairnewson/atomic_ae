@@ -1,2 +1,2 @@
-# atomic_ae
+# Atomic autoencoder code
 Code for atomic autoencoders
