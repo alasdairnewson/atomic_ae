@@ -1,94 +1,69 @@
 
 
 
-import numpy as np
-import math
-import pdb
-import scipy.misc
-import scipy
 import sys
+import os
 import pickle
-import random
-from libs.image_utils import *
+import glob
 
-def create_dataset(img_size,data_dir,n_images,shape='disk',sigma=0.8,n_monte_carlo=800):
+def create_directory(directory):
+    if (os.path.isdir(directory)==0):
+        os.mkdir(directory)
 
-    for i in range(0,n_images):
-        theta = 2*np.pi*np.random.uniform()
-        _r = img_size[0]/4.0
-        params = np.asarray( (_r,theta))
-        img_out = monte_carlo_shape(img_size,shape,params,sigma,n_monte_carlo)
-        write_image(img_out,data_dir+'/'+shape+'_img_'+str(i).zfill(5)+'.png')
-    return
+def create_new_param_id():
+    import time
+    ts = time.time()
+    #find if id already exists
+    param_name = str(ts)
 
-# params : 
-# disk : radius
-# disk shifted : (radius,x_shift,y_shift)
-# ellipse : (y_radis,x_radius)
-# triange : rotation
-def monte_carlo_shape(img_size,shape,params,sigma,N):
+    return param_name
 
-    x_list = range( int(-img_size[1]/2.0+1), int(img_size[1]/2.0+1))
-    y_list = range( int(-img_size[0]/2.0+1), int(img_size[0]/2.0+1))
-    [X,Y] = np.meshgrid( y_list , x_list )
+#go through the sub-directories
+def find_model_by_id(model_id,model_dir):
+    for full_file_path in glob.glob(model_dir+'**/*', recursive=True):
+        file_path_split = os.path.split(full_file_path)
+        file_path,file_name = file_path_split[0],file_path_split[1]
+        if(os.path.isdir(full_file_path)==0 and file_name==model_id):
+            return(full_file_path)
 
-    img_out = np.zeros(img_size)
-    for i in range(0,N):
-        q = sigma * np.random.randn(2,1)
-        x_temp = X+q[0]
-        y_temp = Y+q[1]
-        
-        if ( shape == 'disk'):
-            img_temp = (x_temp**2+y_temp**2) < params^2
-        elif ( shape == 'disk_shifted'):
-            img_temp = ((x_temp-params[1])**2+(y_temp-params[2])**2) < params[0]**2
-        elif ( shape == 'ellipse'):
-            a = params[0]
-            b = params[1]
-            theta = params[2]
-            # carry out the inverse transformation to align the axes
-            A = np.asarray([[np.cos(-theta) , -np.sin(-theta)] , [np.sin(-theta) , np.cos(-theta)] ])
-            
-            coords_transformed = np.matmul(A , [np.ravel(x_temp), np.ravel(y_temp)])
-            x_temp = np.reshape(coords_transformed[0,:],img_size)
-            y_temp = np.reshape(coords_transformed[1,:],img_size)
-            
-            img_temp = ( (x_temp/a)**2 + (y_temp/b)**2 ) <= 1.0
-        elif ( shape == 'triangle'):
-            x_centre = 0.0
-            y_centre = 0.0
-            r = params[0]
-            theta = params[1]
-            img_temp = in_triangle(x_temp, y_temp, x_centre, y_centre, r , theta).astype(float)
-        else:
-            print('Unknown shape')
-        img_out = img_out + img_temp
+    print("Error, model id not found")
+    return ""
 
-    img_out = img_out/N
+def get_latest_by_id(model_dir,root_dir):
+    max_file_date = 0
+    for x in os.listdir(root_dir+model_dir):
+        curr_dir = root_dir+model_dir+x
+        if (os.path.isdir(curr_dir)):
+            file_list = glob.glob(curr_dir+'/*.ckpt*')
+            if (len(file_list)>0):
+                file_name_temp = max(file_list, key=os.path.getctime)
+                file_date = os.path.getctime(file_name_temp)
+                if(file_date>max_file_date):
+                    max_file_date = file_date
+                    latest_model_id = x
 
-    return img_out
+    return latest_model_id
 
+def get_latest_model(model_dir,model_id,n_leading_zeros):
+    max_file_date = 0
+    model_dir = model_dir + model_id+"/"
 
-def in_triangle(x, y, x_centre, y_centre, r, theta):
-    #establish the apexes of the triangle
-    #   B
-    # A   C
-    xA = x_centre - r*np.cos(np.pi/6.0 + theta)
-    yA = y_centre + r*np.sin(np.pi/6.0 + theta)
-    xB = x_centre - r*np.sin(theta)
-    yB = y_centre - r*np.cos(theta)
-    xC = x_centre + r*np.sin(np.pi/3.0 + theta)
-    yC = y_centre + r*np.cos(np.pi/3.0 + theta)
+    file_list = sorted(glob.glob(model_dir+'*ckpt.meta'))
+    if (len(file_list)>=1):
+        latest_model = file_list[-1]
+        latest_model = latest_model[0:-len(".meta")]
+    else:
+        print('Error in get_latest_model, id : ', model_id)
 
-    #check if the point is on the right side of each halfplane
-    #halfplane AB
-    return np.logical_and(np.logical_and(in_halfplane(x, y, xA, yA, xB, yB,1), in_halfplane(x, y, xB, yB, xC, yC,1) ) , 
-            in_halfplane(x, y, xC, yC, xA, yA,1) )
+    return latest_model
 
+def get_parameters(param_file_name):
 
-def in_halfplane(x, y, xA, yA, xB, yB, direction):
-    sign = 0
+    parameter_struct = {}
+    with open(param_file_name, 'rb') as handle:
+        parameter_dict = pickle.load(handle)
 
-    position = np.sign((xB - xA) * (y - yA) - (yB - yA) * (x - xA))
+        for key in parameter_dict.keys():
+            parameter_struct[key] = parameter_dict.get(key)
 
-    return position == direction
+        return parameter_struct
